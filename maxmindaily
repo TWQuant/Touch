@@ -1,0 +1,343 @@
+
+# BLOCK 0: INTRO
+
+import time
+from datetime import datetime
+import MetaTrader5 as mt5
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.stats import skew
+
+
+# BLOCK 1: CONNECTION
+
+# datos del MT5
+print("MetaTrader5 package author: ",mt5.__author__)
+print("MetaTrader5 package version: ",mt5.__version__)
+
+# import the 'pandas' module for displaying data obtained in the tabular form
+import pandas as pd
+pd.set_option('display.max_columns', 500) # number of columns to be displayed
+pd.set_option('display.width', 1500)      # max table width to display
+# import pytz module for working with time zone
+import pytz
+ 
+# establish connection to MetaTrader 5 terminal
+if not mt5.initialize():
+    print("initialize() failed, error code =",mt5.last_error())
+    quit()
+ 
+# set time zone to UTC
+timezone = pytz.timezone("Etc/UTC")
+
+# MOVER LA FECHA DIARIO!!!!!
+# create 'datetime' object in UTC time zone to avoid the implementation of a local time zone offset
+utc_from = datetime(2021, 3, 19, tzinfo=timezone)
+
+# BLOCK 2: DATA MANIPULATION
+
+# get 2 rates D1 bars starting from DATETIME UP in UTC time zone
+symbol = "USDMXN"
+rates = mt5.copy_rates_from(symbol, mt5.TIMEFRAME_M1, utc_from, 2)
+
+# create DataFrame out of the obtained data
+rates_frame = pd.DataFrame(rates)
+
+# convert time in seconds into the datetime format
+rates_frame['time']=pd.to_datetime(rates_frame['time'], unit='s')
+
+#add column with operation OF SOPORTE & RESISTENCIA, TAMBÍEN DIFERENCIAS.
+#SHIFT ES UN ROW ATRAS
+
+rates_frame['Soporte'] = rates_frame['low'].shift(2)
+rates_frame['Soporte low'] = rates_frame.apply(lambda row:row.Soporte - row.low, axis = 1)
+
+rates_frame['Resistencia'] = rates_frame['high'].shift(2)
+rates_frame['high Resistencia'] = rates_frame.apply(lambda row:row.high - row.Resistencia, axis = 1)
+
+print(rates_frame)
+
+#min y max COL 3 ES LOW Y COL 2 ES MAX
+
+rangomax = rates_frame.iloc[0:1,2].max()
+rangomin = rates_frame.iloc[0:1,3].min()
+
+print(rangomax)
+print(rangomin)
+
+# attempt to enable the display of the SYMBOL in MarketWatch
+
+selected=mt5.symbol_select(symbol,True)
+if not selected:
+    print("Failed to select fx")
+    mt5.shutdown()
+    quit()
+ 
+# display the last symbol tick
+lasttick=mt5.symbol_info_tick(symbol)
+print(lasttick)
+
+# BLOCK 3: 1ST ORDER FOR MAX & MIN
+# prepare the SELL request structure
+symbol_info = mt5.symbol_info(symbol)
+if symbol_info is None:
+    print(symbol, "not found, can not call order_check()")
+    mt5.shutdown()
+    quit()
+
+# if the symbol is unavailable in MarketWatch, add it
+if not symbol_info.visible:
+    print(symbol, "is not visible, trying to switch on")
+    if not mt5.symbol_select(symbol,True):
+        print("symbol_select({}}) failed, exit",symbol)
+        mt5.shutdown()
+        quit()
+
+lot = 1.0
+point = mt5.symbol_info(symbol).point
+price = rangomax
+deviation = 200
+request = {
+    "action": mt5.TRADE_ACTION_PENDING,
+    "symbol": symbol,
+    "volume": lot,
+    "type": mt5.ORDER_TYPE_SELL_LIMIT,
+    "price": price,
+    "sl": price + 5000* point,
+    "tp": price - 5000* point,
+    "deviation": deviation,
+    "magic": 234000,
+    "comment": "python script open",
+    "type_time": mt5.ORDER_TIME_GTC,
+    "type_filling": mt5.ORDER_FILLING_RETURN,
+}
+
+# send a trading request
+result = mt5.order_send(request)
+print("2. order_send done, ", result)
+print("   opened position with POSITION_TICKET={}".format(result.order))
+time.sleep(2)
+
+
+# establish connection to the MetaTrader 5 terminal
+if not mt5.initialize():
+    print("initialize() failed, error code =",mt5.last_error())
+    quit()
+# prepare the BUY request structure
+symbol_info = mt5.symbol_info(symbol)
+if symbol_info is None:
+    print(symbol, "not found, can not call order_check()")
+    mt5.shutdown()
+    quit()
+
+# if the symbol is unavailable in MarketWatch, add it
+if not symbol_info.visible:
+    print(symbol, "is not visible, trying to switch on")
+    if not mt5.symbol_select(symbol,True):
+        print("symbol_select({}}) failed, exit",symbol)
+        mt5.shutdown()
+        quit()
+
+lot = 1.0
+point = mt5.symbol_info(symbol).point
+price = rangomin
+deviation = 200
+request = {
+    "action": mt5.TRADE_ACTION_PENDING,
+    "symbol": symbol,
+    "volume": lot,
+    "type": mt5.ORDER_TYPE_BUY_LIMIT,
+    "price": price,
+    "sl": price - 5000* point,
+    "tp": price + 5000* point,
+    "deviation": deviation,
+    "magic": 234000,
+    "comment": "python script open",
+    "type_time": mt5.ORDER_TIME_GTC,
+    "type_filling": mt5.ORDER_FILLING_RETURN,
+}
+
+# send a trading request
+result = mt5.order_send(request)
+# check the execution result
+print("1. order_send(): by {} {} lots at {} with deviation={} points".format(symbol,lot,price,deviation));
+if result.retcode != mt5.TRADE_RETCODE_DONE:
+    print("2. order_send failed, retcode={}".format(result.retcode))
+    # request the result as a dictionary and display it element by element
+    result_dict=result._asdict()
+    for field in result_dict.keys():
+        print("   {}={}".format(field,result_dict[field]))
+        # if this is a trading request structure, display it element by element as well
+        if field=="request":
+            traderequest_dict=result_dict[field]._asdict()
+            for tradereq_filed in traderequest_dict:
+                print("       traderequest: {}={}".format(tradereq_filed,traderequest_dict[tradereq_filed]))
+    print("shutdown() and quit")
+    mt5.shutdown()
+    quit()
+
+print("2. order_send done, ", result)
+print("   opened position with POSITION_TICKET={}".format(result.order))
+time.sleep(2)
+
+
+
+
+
+
+# BLOCK 4: LOOP
+if not mt5.initialize():
+    print("initialize() failed, error code =",mt5.last_error())
+    quit()
+
+bid = mt5.symbol_info(symbol).bid
+ask = mt5.symbol_info(symbol).ask
+
+rangomaxdesv = rangomax + (600/10000)
+rangomindesv = rangomin - (600/10000)
+
+print(rangomaxdesv)
+print(rangomindesv)
+print(ask)
+
+from datetime import datetime
+
+now = datetime.now()
+
+current_time = now.strftime("%H:%M:%S")
+print("Current Time =", current_time)
+
+while rangomindesv < ask < rangomaxdesv:
+    
+    print("esperar")
+    time.sleep(5)
+    if ask >= rangomaxdesv:
+        # establish connection to the MetaTrader 5 terminal
+        if not mt5.initialize():
+            print("initialize() failed, error code =",mt5.last_error())
+            quit()
+        # prepare the BUY request structure
+        symbol_info = mt5.symbol_info(symbol)
+        if symbol_info is None:
+            print(symbol, "not found, can not call order_check()")
+            mt5.shutdown()
+            quit()
+
+        # if the symbol is unavailable in MarketWatch, add it
+        if not symbol_info.visible:
+            print(symbol, "is not visible, trying to switch on")
+            if not mt5.symbol_select(symbol,True):
+                print("symbol_select({}}) failed, exit",symbol)
+                mt5.shutdown()
+                quit()
+
+        lot = 1.0
+        point = mt5.symbol_info(symbol).point
+        price = ask
+        deviation = 200
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": symbol,
+            "volume": lot,
+            "type": mt5.ORDER_TYPE_BUY,
+            "price": price,
+            "sl": price - 5000* point,
+            "tp": price + 5000* point,
+            "deviation": deviation,
+            "magic": 234000,
+            "comment": "python script open",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_RETURN,
+        }
+
+        # send a trading request
+        result = mt5.order_send(request)
+        # check the execution result
+        print("1. order_send(): by {} {} lots at {} with deviation={} points".format(symbol,lot,price,deviation));
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            print("2. order_send failed, retcode={}".format(result.retcode))
+            # request the result as a dictionary and display it element by element
+            result_dict=result._asdict()
+            for field in result_dict.keys():
+                print("   {}={}".format(field,result_dict[field]))
+                # if this is a trading request structure, display it element by element as well
+                if field=="request":
+                    traderequest_dict=result_dict[field]._asdict()
+                    for tradereq_filed in traderequest_dict:
+                        print("       traderequest: {}={}".format(tradereq_filed,traderequest_dict[tradereq_filed]))
+            print("shutdown() and quit")
+            mt5.shutdown()
+            quit()
+
+        print("2. order_send done, ", result)
+        print("   opened position with POSITION_TICKET={}".format(result.order))
+        time.sleep(2)
+        
+    if ask <= rangomindesv:
+        # establish connection to the MetaTrader 5 terminal
+        if not mt5.initialize():
+            print("initialize() failed, error code =",mt5.last_error())
+            quit()
+        # prepare the SELL request structure
+        symbol_info = mt5.symbol_info(symbol)
+        if symbol_info is None:
+            print(symbol, "not found, can not call order_check()")
+            mt5.shutdown()
+            quit()
+
+        # if the symbol is unavailable in MarketWatch, add it
+        if not symbol_info.visible:
+            print(symbol, "is not visible, trying to switch on")
+        if not mt5.symbol_select(symbol,True):
+            print("symbol_select({}}) failed, exit",symbol)
+            mt5.shutdown()
+            quit()
+
+        lot = 1.0
+        point = mt5.symbol_info(symbol).point
+        price = bid
+        deviation = 200
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": symbol,
+            "volume": lot,
+            "type": mt5.ORDER_TYPE_SELL,
+            "price": price,
+            "sl": price + 5000* point,
+            "tp": price - 5000* point,
+            "deviation": deviation,
+            "magic": 234000,
+            "comment": "python script open",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_RETURN,
+        }
+
+        # send a trading request
+        result = mt5.order_send(request)
+        # check the execution result
+        print("1. order_send(): by {} {} lots at {} with deviation={} points".format(symbol,lot,price,deviation));
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            print("2. order_send failed, retcode={}".format(result.retcode))
+            # request the result as a dictionary and display it element by element
+            result_dict=result._asdict()
+            for field in result_dict.keys():
+                print("   {}={}".format(field,result_dict[field]))
+                # if this is a trading request structure, display it element by element as well
+                if field=="request":
+                    traderequest_dict=result_dict[field]._asdict()
+                    for tradereq_filed in traderequest_dict:
+                        print("       traderequest: {}={}".format(tradereq_filed,traderequest_dict[tradereq_filed]))
+            print("shutdown() and quit")
+            mt5.shutdown()
+            quit()
+
+        print("2. order_send done, ", result)
+        print("   opened position with POSITION_TICKET={}".format(result.order))
+        time.sleep(2)
+
+#    print(n)
+print('Loop ended.')
+
+
+
+mt5.shutdown()

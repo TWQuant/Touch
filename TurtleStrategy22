@@ -1,0 +1,114 @@
+# BLOCK 0: INTRO
+
+import time
+from datetime import datetime
+import MetaTrader5 as mt5
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.stats import skew
+from datetime import datetime
+
+now = datetime.now()
+
+current_date = now.strftime("%m/%d/%Y")
+print("Current Date =", current_date)
+
+current_day = int(now.strftime("%d"))
+print("Current Day =", current_day)
+
+current_month = int(now.strftime("%m"))
+print("Current Month =", current_month)
+
+current_year = int(now.strftime("%Y"))
+print("Current Year =", current_year)
+# BLOCK 1: CONNECTION
+
+# datos del MT5
+print("MetaTrader5 package author: ",mt5.__author__)
+print("MetaTrader5 package version: ",mt5.__version__)
+
+# import the 'pandas' module for displaying data obtained in the tabular form
+import pandas as pd
+pd.set_option('display.max_columns', 500) # number of columns to be displayed
+pd.set_option('display.width', 1500)      # max table width to display
+# import pytz module for working with time zone
+import pytz
+ 
+# establish connection to MetaTrader 5 terminal
+if not mt5.initialize():
+    print("initialize() failed, error code =",mt5.last_error())
+    quit()
+ 
+# set time zone to UTC
+timezone = pytz.timezone("Etc/UTC")
+
+# MOVER LA FECHA DIARIO!!!!!
+# create 'datetime' object in UTC time zone to avoid the implementation of a local time zone offset
+utc_from = datetime(current_year, current_month, current_day, tzinfo=timezone)
+
+# BLOCK 2: DATA MANIPULATION
+
+# get 2 rates D1 bars starting from DATETIME UP in UTC time zone
+symbol = "USDMXN"
+no_data = 30
+period_sma = 21
+rates = mt5.copy_rates_from(symbol, mt5.TIMEFRAME_D1, utc_from, no_data)
+
+# create DataFrame out of the obtained data
+rates_frame = pd.DataFrame(rates)
+
+# convert time in seconds into the datetime format
+rates_frame['time']=pd.to_datetime(rates_frame['time'], unit='s')
+#current_date=pd.to_datetime(current_date)
+
+#add column with operation OF SOPORTE & RESISTENCIA, TAMBÍEN DIFERENCIAS.
+#SHIFT ES UN ROW ATRAS
+
+rates_frame['PDC'] = rates_frame['close'].shift(1)
+rates_frame['Rendimiento %'] = rates_frame.apply(lambda row:(row.close - row.PDC)/row.PDC, axis = 1)
+
+
+rates_frame['Soporte'] = rates_frame['low'].shift(1)
+rates_frame['Resistencia'] = rates_frame['high'].shift(1)
+
+rates_frame['Soporte low'] = rates_frame.apply(lambda row:row.Soporte - row.low, axis = 1)
+rates_frame['high Resistencia'] = rates_frame.apply(lambda row:row.high - row.Resistencia, axis = 1)
+
+rates_frame['H-L'] = rates_frame.apply(lambda row:row.high - row.low, axis = 1)
+rates_frame['H-PDC'] = rates_frame.apply(lambda row:row.high - row.PDC, axis = 1)
+rates_frame['PDC-L'] = rates_frame.apply(lambda row:row.PDC - row.low, axis = 1)
+rates_frame['True_Range'] = rates_frame[['H-L','H-PDC','PDC-L']].max(axis=1)
+rates_frame['True_Range_SMA'] = rates_frame.iloc[:,17].rolling(window=period_sma).mean()
+rates_frame = rates_frame.fillna(0)
+rates_frame['Prev_True_Range_SMA'] = rates_frame['True_Range_SMA'].shift(1)
+rates_frame = rates_frame.fillna("")
+
+
+def mero(True_Range,True_Range_SMA,Prev_True_Range_SMA):
+    if True_Range_SMA == Prev_True_Range_SMA == 0:
+        return "nada"
+    elif Prev_True_Range_SMA == 0:
+        return True_Range_SMA
+    else:
+        #return (((19)*1+True_Range)/20)
+        return(0)
+
+rates_frame['Prev_N'] = rates_frame.apply(lambda row: mero(row['True_Range'], row['True_Range_SMA'], row['Prev_True_Range_SMA']), axis=1)
+
+#def merodos(True_Range_SMA,Prev_True_Range_SMA,Prev_N):
+ #   if True_Range_SMA == Prev_N:
+  #      return Prev_N
+   # else:
+    #    return (((19)*+True_Range)/20)
+
+rates_frame
+
+rates_frame.info()
+datedataframe = rates_frame.iloc[no_data-1,0]
+print(datedataframe)
+
+#Calculate N
+#N = (19xPDN+TR)/20
+#N = ((no_datos-1))*1+
+
+rates_frame
